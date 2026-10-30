@@ -1,0 +1,22 @@
+# Vivado output (generated files)
+.Xil/
+*.cache/
+*.gen/
+*.runs/
+*.sim/
+*.hw/
+*.ip_user_files/
+*.srcs/
+xsim.dir/
+*.wdb
+*.jou
+*.log
+*.str
+*.pb
+*.backup.jou
+*.backup.log
+*.xpr.zip
+build/
+# Transitional: current GUI project is local, to be replaced by project-creation Tcl
+*.xpr
+# Keep RTL, TBs, Tcl, XDC, Markdown, Git files tracked.
