@@ -105,6 +105,7 @@ module capture_main_fsm (
     logic [31:0] active_fragment_bytes;
     logic [31:0] fragment_addr_reg, fragment_index_reg;
     logic [31:0] next_frame_count;
+    logic [17:0] next_frame_count18;
     logic full_frame_count;
 
     assign allow_start = (fsm_state == S_IDLE) && !validating &&
@@ -155,8 +156,12 @@ module capture_main_fsm (
     // A STOP can finish in the very same cycle as the input command. Capture
     // its final frame count, then send the revised packer target one clock
     // LATER (packer.start has priority over its stop_target_valid input).
-    assign next_frame_count = frames_captured + {31'd0, frame_stored};
-    assign full_frame_count = (frames_captured >= active_n_frames);
+    // Validated configuration permits at most 131072 frames (18 bits).
+    // Keep the public 32-bit count, but use an 18-bit increment/comparison
+    // on the timing-critical capture/STOP path.
+    assign next_frame_count18 = frames_captured[17:0] + {17'd0, frame_stored};
+    assign next_frame_count = {14'd0, next_frame_count18};
+    assign full_frame_count = (frames_captured[17:0] >= active_n_frames[17:0]);
     assign stop_target_valid = (fsm_state == S_XFER) &&
                                stop_target_pending && fragment_started &&
                                !abort_pending && !fatal_error;
@@ -171,7 +176,7 @@ module capture_main_fsm (
     assign fragment_complete_pulse = (fsm_state == S_XFER) &&
                     fragment_started && writer_done && !abort_pending &&
                     !fatal_error && !stop_early &&
-                    (frames_captured >= active_n_frames);
+                    (frames_captured[17:0] >= active_n_frames[17:0]);
     // Controlled one-shot FIFO flush, only after master has completed/drained.
     assign fifo_flush = ((fsm_state == S_AFTER) || (fsm_state == S_ERROR)) &&
                         !flush_issued;
@@ -307,7 +312,7 @@ module capture_main_fsm (
                     if (capture_stopped && (stop_pending || cmd_stop) &&
                         !stop_boundary_seen && !abort_pending) begin
                         stop_boundary_seen <= 1'b1;
-                        if (next_frame_count < active_n_frames) begin
+                        if (next_frame_count18 < active_n_frames[17:0]) begin
                             stop_early <= 1'b1;
                             stop_target_pending <= 1'b1;
                         end
@@ -332,7 +337,7 @@ module capture_main_fsm (
                         last_fragment_frames <= {14'd0, writer_frames_committed};
                         last_fragment_size <= writer_preamble_committed ?
                            (32'd128 + {14'd0, writer_frames_committed} * 32'd768) : 32'd0;
-                        if (!stop_early && frames_captured >= active_n_frames) begin
+                        if (!stop_early && frames_captured[17:0] >= active_n_frames[17:0]) begin
                             last_fragment_status <= 32'd1; // COMPLETE
                             run_fragments_completed <= run_fragments_completed + 32'd1;
                             fragment_addr_reg <= fragment_addr_reg + active_fragment_bytes;
