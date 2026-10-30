@@ -148,19 +148,60 @@ module trigger_ctrl (
         end
     end
 
-    // Counters are 64-bit to avoid quick wraparound of 200 MHz event streams.
-    // Main-FSM/state-based enable controls whether an event counts as missed.
+    // 48-bit cumulative statistics, exposed as zero-extended 64-bit values
+    // to preserve the AXI-Lite register map and the module port contract.
+    // Each counter wraps modulo 2^48. At up to three missed events per 200 MHz
+    // cycle, this takes about 5.43 days; software should clear stats per run.
+    //
+    // 16-bit independently updated segments avoid placing a 48/64-bit ripple
+    // carry chain AFTER the combinational trigger-decode path.
+    logic [15:0] accepted_lo, accepted_mid, accepted_hi;
+    logic [15:0] missed_lo, missed_mid, missed_hi;
+
+    assign triggers_accepted_total = {16'd0, accepted_hi, accepted_mid, accepted_lo};
+    assign triggers_missed_total   = {16'd0, missed_hi, missed_mid, missed_lo};
+
+    // Accepted counter increases by at most one each cycle.
+    wire accepted_carry16 = &accepted_lo;
+    wire accepted_carry32 = accepted_carry16 && (&accepted_mid);
+
+    // Missed counter may increase by 0, 1, 2 or 3 each cycle.
+    // Overflow of the low 16-bit slice can be determined without waiting
+    // for the 16-bit sum's carry chain. This is especially important for
+    // the path from the periodic-trigger comparator to the upper counter.
+    wire [16:0] missed_lo_sum = {1'b0, missed_lo} +
+                                {15'd0, trigger_missed_events};
+    wire missed_carry16 = (&missed_lo[15:2]) &&
+         (((missed_lo[1:0] == 2'd3) && (trigger_missed_events != 2'd0)) ||
+          ((missed_lo[1:0] == 2'd2) && trigger_missed_events[1]) ||
+          ((missed_lo[1:0] == 2'd1) && (&trigger_missed_events)));
+    wire missed_carry32 = missed_carry16 && (&missed_mid);
+
     always_ff @(posedge clk) begin
         if (rst || clear_stats) begin
-            triggers_accepted_total <= 64'd0;
-            triggers_missed_total   <= 64'd0;
+            accepted_lo  <= 16'd0;
+            accepted_mid <= 16'd0;
+            accepted_hi  <= 16'd0;
+            missed_lo    <= 16'd0;
+            missed_mid   <= 16'd0;
+            missed_hi    <= 16'd0;
         end else begin
-            if (trigger_accept)
-                triggers_accepted_total <= triggers_accepted_total + 64'd1;
-            if (trigger_missed_events != 2'd0)
-                triggers_missed_total <= triggers_missed_total +
-                    {{62{1'b0}}, trigger_missed_events};
+            if (trigger_accept) begin
+                accepted_lo <= accepted_lo + 16'd1;
+                if (accepted_carry16)
+                    accepted_mid <= accepted_mid + 16'd1;
+                if (accepted_carry32)
+                    accepted_hi <= accepted_hi + 16'd1;
+            end
+            if (trigger_missed_events != 2'd0) begin
+                missed_lo <= missed_lo_sum[15:0];
+                if (missed_carry16)
+                    missed_mid <= missed_mid + 16'd1;
+                if (missed_carry32)
+                    missed_hi <= missed_hi + 16'd1;
+            end
         end
     end
+
 endmodule
 `default_nettype wire

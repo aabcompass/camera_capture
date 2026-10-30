@@ -64,8 +64,9 @@ module tb_trigger_ctrl;
                 $fatal(1,"trigger_accept mismatch at %0t", $time);
             if (trigger_missed_events !== missed_ref[1:0])
                 $fatal(1,"trigger_missed_events mismatch at %0t", $time);
-            if (accept_ref) expect_accepted=expect_accepted+64'd1;
-            expect_missed=expect_missed+missed_ref;
+            if (accept_ref)
+                expect_accepted=(expect_accepted+64'd1) & 64'h0000_ffff_ffff_ffff;
+            expect_missed=(expect_missed+missed_ref) & 64'h0000_ffff_ffff_ffff;
         end
     end
 
@@ -395,6 +396,102 @@ module tb_trigger_ctrl;
         check(triggers_accepted_total==0 && triggers_missed_total==0,
               "reset clears both counters");
         rst=1'b0;
+        check_stats();
+
+        $display("[TEST] 48-bit accepted counter carries across 16/32-bit slices");
+        groups=groups+1;
+        @(negedge clk);
+        trigger_enable=3'b001;
+        count_enable=1'b1;
+        accept_enable=1'b1;
+        run_active=1'b0;
+        int_periodic_enable=1'b0;
+        int_single_pulse=1'b0;
+        s_axis_trg_tdata=64'h1;
+        s_axis_trg_tvalid=1'b1;
+        dut.accepted_lo=16'hffff;
+        dut.accepted_mid=16'hffff;
+        dut.accepted_hi=16'h0002;
+        expect_accepted=64'h0000_0002_ffff_ffff;
+        #0.1;
+        check(triggers_accepted_total===expect_accepted,
+              "accepted preset near 32-bit carry");
+        @(posedge clk);
+        #0.1;
+        check(triggers_accepted_total===64'h0000_0003_0000_0000,
+              "accepted +1 propagates into top 16-bit segment");
+        check_stats();
+        @(negedge clk);
+        s_axis_trg_tvalid=1'b0;
+
+        $display("[TEST] 48-bit accepted counter wraparound");
+        groups=groups+1;
+        @(negedge clk);
+        dut.accepted_lo=16'hffff;
+        dut.accepted_mid=16'hffff;
+        dut.accepted_hi=16'hffff;
+        expect_accepted=64'h0000_ffff_ffff_ffff;
+        s_axis_trg_tvalid=1'b1;
+        #0.1;
+        check(trigger_accept,"accept event at maximum 48-bit count");
+        @(posedge clk);
+        #0.1;
+        check(triggers_accepted_total===64'd0,
+              "accepted counter wraps modulo 2^48");
+        check_stats();
+        @(negedge clk);
+        s_axis_trg_tvalid=1'b0;
+
+        $display("[TEST] 48-bit missed counter +2 carry across both boundaries");
+        groups=groups+1;
+        @(negedge clk);
+        accept_enable=1'b0;
+        trigger_enable=3'b101;
+        s_axis_trg_tvalid=1'b1;
+        int_single_pulse=1'b1;
+        dut.missed_lo=16'hffff;
+        dut.missed_mid=16'hffff;
+        dut.missed_hi=16'h0007;
+        expect_missed=64'h0000_0007_ffff_ffff;
+        #0.1;
+        check(trigger_missed_events==2'd2, "two concurrent missed sources");
+        @(posedge clk);
+        #0.1;
+        check(triggers_missed_total===64'h0000_0008_0000_0001,
+              "missed +2 propagates into top 16-bit segment");
+        check_stats();
+        @(negedge clk);
+        s_axis_trg_tvalid=1'b0;
+        int_single_pulse=1'b0;
+
+        $display("[TEST] missed counter +3 carry and 48-bit wraparound");
+        groups=groups+1;
+        @(negedge clk);
+        trigger_enable=3'b111;
+        accept_enable=1'b0;
+        count_enable=1'b1;
+        ext_trig_async=1'b1;
+        await_external_edge();
+        s_axis_trg_tvalid=1'b1;
+        s_axis_trg_tdata=64'h2;
+        int_single_pulse=1'b1;
+        dut.missed_lo=16'hfffe;
+        dut.missed_mid=16'hffff;
+        dut.missed_hi=16'hffff;
+        expect_missed=64'h0000_ffff_ffff_fffe;
+        #0.1;
+        check(trigger_missed_events==2'd3, "three missed sources in one cycle");
+        @(posedge clk);
+        #0.1;
+        check(triggers_missed_total===64'h0000_0000_0000_0001,
+              "48-bit wraparound after missed +3");
+        check_stats();
+        @(negedge clk);
+        ext_trig_async=1'b0;
+        s_axis_trg_tvalid=1'b0;
+        int_single_pulse=1'b0;
+        count_enable=1'b0;
+        repeat(5) @(negedge clk);
         check_stats();
 
         $display("PASS: %0d groups, %0d checks",groups,checks);

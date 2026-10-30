@@ -1,82 +1,38 @@
-# Camera Capture IP: Git (host) + Vivado 2023.1 (Docker)
+# Camera Data Capture IP — комплект ТЗ и аудит архитектуры
 
-This starter bundle contains scripts **only**, not RTL. Put the scripts and .gitignore at the root
-of the existing `CameraDataCaptureIP` Vivado project directory that contains its `.xpr` file.
+**Цель:** зафиксировать требования к ядру захвата научных данных для Xilinx XC7Z035 и к каждому из 11 RTL-модулей, чтобы отделить обязательные свойства от решений реализации и выявить потенциальную избыточность.
 
-Important: Before running scripts, relink project sources to the working Git `rtl/` and `sim/`
-files. Do not keep using `.srcs/**/imports/` copies of the same modules.
+**Дата среза:** 2026-10-30. **Статус:** рабочий проект, все предоставленные пользователем регрессионные симуляции после патча №4 прошли; RTL патча №4 пока не закоммичен. Это **документы для обсуждения**, а не изменение RTL.
 
-## On Ubuntu host (one-time setup)
+## Состав
 
-```
-cd ~/xil_proj/Lovozero_vitis/ip_repo/CameraDataCaptureIP
-mkdir -p rtl sim scripts docs constraints build
-# Extract this bundle into this directory, preserving scripts/.
-# Copy your VERIFIED latest .sv files from the Vivado imports locations into rtl/ and sim/.
-git init
-git add rtl sim scripts docs constraints .gitignore README.md
-git commit -m 'Baseline: verified Camera Data Capture RTL and tests'
-```
+| Файл | Что внутри |
+|---|---|
+| [core_spec.md](core_spec.md) | ТЗ на всё ядро: интерфейсы, ограничения, поведение, формат памяти, отказоустойчивость |
+| [architecture_review.md](architecture_review.md) | Разделение обязательного/настраиваемого; кандидаты на упрощение и риски |
+| [register_map.md](register_map.md) | Карта AXI4-Lite, команды, состояния, ошибки, семантика регистров |
+| [verification.md](verification.md) | Требуемые тесты, текущие результаты и порядок проверки изменений |
+| [timing_snapshot.md](timing_snapshot.md) | Сравнение Timing и ограничения интерпретации синтеза |
+| [original_user_spec.md](original_user_spec.md) | Первоначальное русское ТЗ из комментария top RTL, без смыслового редактирования |
+| [modules/camera_capture_top.md](modules/camera_capture_top.md) | Интеграция интерфейсов и требований всего ядра |
+| [modules/frame_input_ctrl.md](modules/frame_input_ctrl.md) | Приём 96-словных кадров, TLAST и STOP |
+| [modules/capture_fifo.md](modules/capture_fifo.md) | Хранилище FWFT/XPM |
+| [modules/capture_fifo_ctrl.md](modules/capture_fifo_ctrl.md) | Sliding PRE и transfer логика |
+| [modules/trigger_ctrl.md](modules/trigger_ctrl.md) | Триггеры и статистика |
+| [modules/burst_packer.md](modules/burst_packer.md) | Преамбула, кадры и пакетирование |
+| [modules/axi3_write_master.md](modules/axi3_write_master.md) | AXI3 burst, адреса, BRESP |
+| [modules/mem_range_guard.md](modules/mem_range_guard.md) | Проверка START и памяти |
+| [modules/axi_lite_regs.md](modules/axi_lite_regs.md) | Конфигурация и MMIO |
+| [modules/capture_main_fsm.md](modules/capture_main_fsm.md) | FSM, STOP, ERROR, END |
+| [modules/capture_statistics.md](modules/capture_statistics.md) | Счётчики и диагностика |
 
-## One-time Vivado migration
+## Статус формулировок
 
-Open existing project in Vivado GUI. In Design Sources / Simulation Sources, remove the
-old imported `.sv` copies **from project only, not from disk**. Add the files from `rtl/`
-and `sim/` with **Copy sources into project unchecked**. Keep `.xpr` in the project root.
-Save and close Vivado GUI before using batch scripts. Check the Sources window that file
-paths point to Git-tracked files, not `.srcs/.../imports/...`.
+- **[REQ]** — согласованное поведение ядра либо прямо отражённое в исходном ТЗ.
+- **[CURRENT]** — инженерное решение и/или поведение по доступному RTL и ранее проверенной сборке; можно изменить после согласования.
+- **[OPTION]** — вариант для обсуждения, **не** обязательное требование.
+- **[VERIFY]** — требуется дополнительная проверка на текущем RTL, интеграции в Zynq PS или в условиях, не покрытых имеющимися тестами.
 
-## Docker
+Описание построено по оригинальному ТЗ в `camera_capture_top.sv`, исходникам архивной интеграционной сборки v0.3, известным последующим исправлениям `mem_range_guard` v1.1, Main FSM (патчи №1/№2), `trigger_ctrl` (патч №4), результатам XSIM и двум последним отчётам синтеза. Текущий Git-репозиторий пользователя не подключён к этой сессии; **документация не подменяет ревизию исходников по текущему commit hash**.
 
-Your Docker run script already bind-mounts `/home/alx/xil_proj` to the same path in the
-container. Optional: add `--name vivado23` to `docker run ...`; keep the container running
-in one terminal. From the host in another terminal:
-
-```
-docker exec vivado23 bash -lc 'cd /home/alx/xil_proj/Lovozero_vitis/ip_repo/CameraDataCaptureIP && bash scripts/run_vivado.sh sim tb_capture_main_fsm'
-docker exec vivado23 bash -lc 'cd /home/alx/xil_proj/Lovozero_vitis/ip_repo/CameraDataCaptureIP && bash scripts/run_vivado.sh synth'
-```
-
-Or in the container shell directly:
-
-```
-bash scripts/run_vivado.sh sim tb_capture_main_fsm
-bash scripts/run_regression.sh
-bash scripts/run_vivado.sh synth
-```
-
-Each test run checks `simulate.log` for a `PASS:` marker and failure patterns. This is a
-simple guard, not a full test quality proof: every testbench must print PASS exactly once
-only after finishing all checks, and use `$fatal` for failures. The set of testbenches
-included in `run_regression.sh` assumes all these TBs have been added to the project's
-Simulation Sources.
-
-## Git workflow (host)
-
-```
-git status
-git diff --check
-git diff
-git add rtl sim scripts
-# After tests pass in Docker:
-git commit -m 'Optimize stop boundary timing in FSM'
-```
-
-For assistant patches: `git apply --check file.patch`, `git apply file.patch`, then review
-`git diff` and run regression. Do not apply patches from an unknown/untrusted source.
-
-## Notes
-
-- `run_synth.tcl` resets synth_1; it will overwrite previous synthesis results.
-- Run Vivado GUI and batch scripts serially on the same .xpr (avoid simultaneous edits).
-- The existing `.xpr` is intentionally Git-ignored as a *transitional* setup. For full
-  reproducibility, the next step is a Tcl script that creates a clean project with the
-  actual XC7Z035 **part number** and all source/constraint mappings.
-- Existing generated archives, Vitis hardware exports, and .xci are not automatically
-  included in this Git baseline. Preserve any manually customized IP/.xci in version
-  control if needed.
-- Your Docker startup uses `--privileged` and `xhost +local:docker` (broad permissions).
-  They are not required for batch synthesis/simulation and should be narrowed later;
-  USB/JTAG access may require additional device configuration for hardware debugging.
-- `LIBRARY_PATH` in Docker run may cause the XSIM compiler-environment warning seen
-  earlier. If batch compilation has problems, try removing that override first.
+Для использования в Git скопируйте каталог целиком, например в `docs/spec/`.
