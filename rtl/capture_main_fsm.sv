@@ -98,7 +98,6 @@ module capture_main_fsm (
     // initial fragment address on the next edge, before camera sync begins.
     logic start_cfg_pending;
     logic stop_pending, stop_boundary_seen, stop_target_pending;
-    logic [17:0] stop_limit;
     logic stop_early, trigger_seen;
     logic flush_issued;
     logic [1:0] flush_wait;
@@ -161,7 +160,7 @@ module capture_main_fsm (
     assign stop_target_valid = (fsm_state == S_XFER) &&
                                stop_target_pending && fragment_started &&
                                !abort_pending && !fatal_error;
-    assign stop_target_frames = stop_limit;
+    assign stop_target_frames = frames_captured[17:0];
     assign status_stop_pending = stop_pending;
     assign status_trigger_latched = trigger_seen;
     assign status_capture_complete = (fsm_state == S_XFER) &&
@@ -188,7 +187,6 @@ module capture_main_fsm (
             stop_pending <= 1'b0;
             stop_boundary_seen <= 1'b0;
             stop_target_pending <= 1'b0;
-            stop_limit <= 18'd0;
             stop_early <= 1'b0;
             trigger_seen <= 1'b0;
             flush_issued <= 1'b0;
@@ -311,7 +309,6 @@ module capture_main_fsm (
                         stop_boundary_seen <= 1'b1;
                         if (next_frame_count < active_n_frames) begin
                             stop_early <= 1'b1;
-                            stop_limit <= next_frame_count[17:0];
                             stop_target_pending <= 1'b1;
                         end
                     end
