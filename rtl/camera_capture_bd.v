@@ -1,12 +1,12 @@
 // Replace old capture_demo_bd when splitting camera generator into a separate BD block.
 // Verilog-2001 Module Reference adapter (Vivado 2023.1).
-// AXI ports are grouped explicitly; camera inputs are wired to on-chip source.
+// AXI and AXI4-Stream ports grouped explicitly; camera inputs are always-ready.
 // For performance/functional testing only. Do not add this source to
 // synthesis top camera_capture_top outside the BD integration flow.
 `default_nettype none
 module camera_capture_bd (
     (* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 clk CLK" *)
-    (* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF S_AXI:M_AXI, ASSOCIATED_RESET rst, FREQ_HZ 200000000" *)
+    (* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF S_AXI:M_AXI:S_AXIS:S_AXIS_TRG, ASSOCIATED_RESET rst, FREQ_HZ 200000000" *)
     input wire clk,
     (* X_INTERFACE_INFO = "xilinx.com:signal:reset:1.0 rst RST" *)
     (* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_HIGH" *)
@@ -91,10 +91,19 @@ module camera_capture_bd (
     input wire m_axi_bvalid,
     (* X_INTERFACE_INFO = "xilinx.com:interface:aximm:1.0 M_AXI BREADY" *)
     output wire m_axi_bready,
+    // AXI4-Stream without TREADY: capture never backpressures the camera.
+    // No AXIS TREADY port on either adapter. Downstream is always ready.
+    (* X_INTERFACE_INFO = "xilinx.com:interface:axis:1.0 S_AXIS TDATA" *)
+    (* X_INTERFACE_PARAMETER = "TDATA_NUM_BYTES 8, HAS_TREADY 0, HAS_TLAST 1" *)
     input wire [63:0] camera_data,
+    (* X_INTERFACE_INFO = "xilinx.com:interface:axis:1.0 S_AXIS TVALID" *)
     input wire camera_valid,
+    (* X_INTERFACE_INFO = "xilinx.com:interface:axis:1.0 S_AXIS TLAST" *)
     input wire camera_last,
+    (* X_INTERFACE_INFO = "xilinx.com:interface:axis:1.0 S_AXIS_TRG TDATA" *)
+    (* X_INTERFACE_PARAMETER = "TDATA_NUM_BYTES 8, HAS_TREADY 0, HAS_TLAST 0" *)
     input wire [63:0] trigger_data,
+    (* X_INTERFACE_INFO = "xilinx.com:interface:axis:1.0 S_AXIS_TRG TVALID" *)
     input wire trigger_valid,
     input wire ext_trig,
     input wire [63:0] timestamp
